@@ -10,6 +10,8 @@ from functools import lru_cache
 from io import BytesIO
 from typing import Optional, Union, Tuple, List, Any, Dict
 from concurrent.futures import ThreadPoolExecutor
+import io
+import librosa
 
 import requests
 import torch
@@ -498,6 +500,53 @@ def extract_vision_info(conversations: Union[List[Dict[str, Any]], List[List[Dic
     return vision_infos
 
 
+def fetch_audio(
+    audio_bytes: bytes,
+    target_sr: int = 16000,
+    mono: bool = True,
+    dtype: np.dtype = np.float32
+) -> (np.ndarray, int):
+    """
+    Load audio data from a bytes object into a NumPy array, using librosa.
+    
+    Parameters
+    ----------
+    audio_bytes : bytes
+        The raw audio bytes (e.g., file read from disk or network).
+    target_sr : int, default=16000
+        The target sampling rate to resample the audio to.
+    mono : bool, default=True
+        Whether to mix down to mono.
+    dtype : numpy.dtype, default=np.float32
+        The dtype of the returned array.
+    
+    Returns
+    -------
+    y : np.ndarray
+        The audio time‐series array (shape: (n_samples,) if mono=True, else (n_channels, n_samples)).
+    sr : int
+        The sampling rate of `y`; equal to `target_sr` (unless we keep original).
+    """
+    # Use BytesIO to wrap the bytes
+    audio_buffer = io.BytesIO(audio_bytes)
+    
+    # Load using librosa. Note: librosa.load accepts file‐like objects provided the codec supports it.
+    y, sr_orig = librosa.load(
+        audio_buffer,
+        sr=None,           # preserve original sr first
+        mono=mono,
+        dtype=dtype
+    )
+    
+    # If the original sampling rate is different from target, resample
+    if target_sr is not None and sr_orig != target_sr:
+        y = librosa.resample(y, orig_sr=sr_orig, target_sr=target_sr)
+        sr = target_sr
+    else:
+        sr = sr_orig
+    
+    return y, sr
+
 def process_vision_info(
     conversations: Union[List[Dict[str, Any]], List[List[Dict[str, Any]]]],
     return_video_kwargs: bool = False,
@@ -509,6 +558,7 @@ def process_vision_info(
     ## Read images or videos
     image_inputs = []
     video_inputs = []
+    audio_inputs = []
     video_sample_fps_list = []
     for vision_info in vision_infos:
         if "image" in vision_info or "image_url" in vision_info:
@@ -518,6 +568,8 @@ def process_vision_info(
                         image_patch_size=image_patch_size, return_video_metadata=return_video_metadata)
             video_sample_fps_list.append(video_sample_fps)
             video_inputs.append(video_input)
+        elif "audio" in vision_info:
+            audio_inputs.append(fetch_audio(vision_info))
         else:
             raise ValueError("image, image_url or video should in content.")
     if len(image_inputs) == 0:
