@@ -575,6 +575,8 @@ def process_vision_info(
         image_inputs = None
     if len(video_inputs) == 0:
         video_inputs = None
+    if len(audio_inputs) == 0:
+        audio_inputs = None
 
     video_kwargs = {'do_sample_frames': False}
     if not return_video_metadata: # BC for qwen2.5vl
@@ -582,4 +584,4 @@ def process_vision_info(
 
     if return_video_kwargs:
         return image_inputs, video_inputs, video_kwargs
-    return image_inputs, video_inputs
+    return image_inputs, video_inputs, audio_inputs
