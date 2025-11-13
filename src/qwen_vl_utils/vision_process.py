@@ -10,7 +10,6 @@ from functools import lru_cache
 from io import BytesIO
 from typing import Optional, Union, Tuple, List, Any, Dict
 from concurrent.futures import ThreadPoolExecutor
-import io
 import librosa
 
 import requests
@@ -528,7 +527,7 @@ def fetch_audio(
         The sampling rate of `y`; equal to `target_sr` (unless we keep original).
     """
     # Use BytesIO to wrap the bytes
-    audio_buffer = io.BytesIO(audio_bytes)
+    audio_buffer = BytesIO(audio_bytes)
     
     # Load using librosa. Note: librosa.load accepts file‐like objects provided the codec supports it.
     y, sr_orig = librosa.load(
