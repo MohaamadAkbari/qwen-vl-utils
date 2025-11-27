@@ -494,6 +494,7 @@ def extract_vision_info(conversations: Union[List[Dict[str, Any]], List[List[Dic
                         or "image_url" in ele
                         or "video" in ele
                         or ele.get("type", "text") in ("image", "image_url", "video")
+                        or "audio" in ele
                     ):
                         vision_infos.append(ele)
     return vision_infos
@@ -532,19 +533,13 @@ def fetch_audio(
     # Load using librosa. Note: librosa.load accepts file‐like objects provided the codec supports it.
     y, sr_orig = librosa.load(
         audio_buffer,
-        sr=None,           # preserve original sr first
+        sr=target_sr,           # preserve original sr first
         mono=mono,
         dtype=dtype
     )
-    
-    # If the original sampling rate is different from target, resample
-    if target_sr is not None and sr_orig != target_sr:
-        y = librosa.resample(y, orig_sr=sr_orig, target_sr=target_sr)
-        sr = target_sr
-    else:
-        sr = sr_orig
-    
-    return y, sr
+
+    return y
+
 
 def process_vision_info(
     conversations: Union[List[Dict[str, Any]], List[List[Dict[str, Any]]]],
