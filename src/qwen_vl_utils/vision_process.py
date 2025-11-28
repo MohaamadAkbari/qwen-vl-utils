@@ -501,18 +501,21 @@ def extract_vision_info(conversations: Union[List[Dict[str, Any]], List[List[Dic
 
 
 def fetch_audio(
-    audio_bytes: bytes,
+    audio_input: Union[bytes, str, Dict[str, Any]],
     target_sr: int = 16000,
     mono: bool = True,
     dtype: np.dtype = np.float32
-) -> (np.ndarray, int):
+) -> np.ndarray:
     """
-    Load audio data from a bytes object into a NumPy array, using librosa.
+    Load audio data from various input formats into a NumPy array, using librosa.
     
     Parameters
     ----------
-    audio_bytes : bytes
-        The raw audio bytes (e.g., file read from disk or network).
+    audio_input : bytes, str, or dict
+        The audio input. Can be:
+        - bytes: raw audio bytes
+        - str: file path, URL, or base64 data URI
+        - dict: dictionary with "audio" key containing any of the above
     target_sr : int, default=16000
         The target sampling rate to resample the audio to.
     mono : bool, default=True
@@ -524,19 +527,69 @@ def fetch_audio(
     -------
     y : np.ndarray
         The audio time‐series array (shape: (n_samples,) if mono=True, else (n_channels, n_samples)).
-    sr : int
-        The sampling rate of `y`; equal to `target_sr` (unless we keep original).
     """
-    # Use BytesIO to wrap the bytes
-    audio_buffer = BytesIO(audio_bytes)
+    # Extract audio data from dictionary if needed
+    if isinstance(audio_input, dict):
+        audio_data = audio_input.get("audio")
+        if audio_data is None:
+            raise ValueError("Dictionary must contain 'audio' key")
+        audio_input = audio_data
     
-    # Load using librosa. Note: librosa.load accepts file‐like objects provided the codec supports it.
-    y, sr_orig = librosa.load(
-        audio_buffer,
-        sr=target_sr,           # preserve original sr first
-        mono=mono,
-        dtype=dtype
-    )
+    # Handle different input formats
+    if isinstance(audio_input, bytes):
+        # Direct bytes input - use BytesIO
+        audio_buffer = BytesIO(audio_input)
+        y, sr_orig = librosa.load(
+            audio_buffer,
+            sr=target_sr,
+            mono=mono,
+            dtype=dtype
+        )
+    elif isinstance(audio_input, str):
+        if audio_input.startswith("http://") or audio_input.startswith("https://"):
+            # URL input - download and use BytesIO
+            with requests.get(audio_input, stream=True) as response:
+                response.raise_for_status()
+                audio_buffer = BytesIO(response.content)
+                y, sr_orig = librosa.load(
+                    audio_buffer,
+                    sr=target_sr,
+                    mono=mono,
+                    dtype=dtype
+                )
+        elif audio_input.startswith("file://"):
+            # File URL - extract path and let librosa handle it
+            audio_path = audio_input[7:]
+            y, sr_orig = librosa.load(
+                audio_path,
+                sr=target_sr,
+                mono=mono,
+                dtype=dtype
+            )
+        elif audio_input.startswith("data:audio"):
+            # Base64 data URI
+            if "base64," in audio_input:
+                _, base64_data = audio_input.split("base64,", 1)
+                audio_bytes = base64.b64decode(base64_data)
+                audio_buffer = BytesIO(audio_bytes)
+                y, sr_orig = librosa.load(
+                    audio_buffer,
+                    sr=target_sr,
+                    mono=mono,
+                    dtype=dtype
+                )
+            else:
+                raise ValueError(f"Unsupported data URI format: {audio_input[:50]}...")
+        else:
+            # Assume it's a local file path - let librosa handle it directly
+            y, sr_orig = librosa.load(
+                audio_input,
+                sr=target_sr,
+                mono=mono,
+                dtype=dtype
+            )
+    else:
+        raise ValueError(f"Unsupported audio input type: {type(audio_input)}. Expected bytes, str, or dict.")
 
     return y
 
@@ -565,7 +618,7 @@ def process_vision_info(
         elif "audio" in vision_info:
             audio_inputs.append(fetch_audio(vision_info))
         else:
-            raise ValueError("image, image_url or video should in content.")
+            raise ValueError("image, image_url, video, or audio should be in content.")
     if len(image_inputs) == 0:
         image_inputs = None
     if len(video_inputs) == 0:
